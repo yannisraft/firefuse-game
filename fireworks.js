@@ -99,6 +99,19 @@ class FireworksGame {
         this.lastTime = 0;
         this.fuseTime = 1.6; // Default fuse time in seconds
 
+        // Bubble shooter aiming system (separate from existing fireworks)
+        this.launcher = {
+            x: 0, // Will be set to center
+            y: 0, // Will be set to bottom
+            angle: -Math.PI / 2, // Start pointing up
+            length: 40 // Visual length of launcher
+        };
+        this.aimingLine = {
+            length: 200,
+            dotCount: 15,
+            visible: true
+        };
+
         // Colors for different firework types
         this.fireworkColors = [
             [1.0, 0.0, 0.0],    // Red
@@ -110,6 +123,11 @@ class FireworksGame {
             [1.0, 0.5, 0.0],    // Orange
             [0.5, 0.0, 1.0]     // Purple
         ];
+    }
+
+    updateLauncherPosition() {
+        this.launcher.x = this.canvas.width / 2;
+        this.launcher.y = this.canvas.height - 60; // 60px from bottom
     }
 
     calculateSpawnArea() {
@@ -131,6 +149,7 @@ class FireworksGame {
         window.addEventListener('resize', () => {
             this.setupCanvas();
             this.calculateSpawnArea(); // Recalculate spawn area for new screen size
+            this.updateLauncherPosition(); // Update launcher position for new screen size
             
             const transform = [
                 2 / this.canvas.width, 0, -1,
@@ -139,6 +158,31 @@ class FireworksGame {
             ];
             this.gl.uniformMatrix3fv(this.uniforms.transform, false, transform);
             this.updateSpawnAreaIndicator();
+        });
+
+        // Mouse tracking for bubble shooter aiming (separate system)
+        this.canvas.addEventListener('mousemove', (e) => {
+            if (this.gameRunning) {
+                const rect = this.canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Calculate angle from launcher to mouse
+                const deltaX = mouseX - this.launcher.x;
+                const deltaY = mouseY - this.launcher.y;
+                
+                let angle = Math.atan2(deltaY, deltaX);
+                
+                // Constrain to upward directions only (like bubble shooter)
+                if (angle > 0) {
+                    angle = angle > Math.PI / 2 ? Math.PI - 0.1 : 0.1;
+                }
+                
+                // Limit aiming range (roughly 20-160 degrees)
+                const minAngle = -Math.PI * 0.9; 
+                const maxAngle = -Math.PI * 0.1;
+                this.launcher.angle = Math.max(minAngle, Math.min(maxAngle, angle));
+            }
         });
 
         // Click to launch firework
@@ -325,6 +369,33 @@ class FireworksGame {
         const colors = [];
         const alphas = [];
 
+        // Bubble shooter aiming system (now with correct coordinates!)
+        if (this.gameRunning && this.launcher) {
+            // Launcher at bottom center (0,0 is screen center, so positive Y = down)
+            const launcherY = this.canvas.height / 2 - 80; // 80 pixels up from bottom
+            
+            // Launcher base
+            positions.push(0, launcherY);
+            sizes.push(25);
+            colors.push(0.8, 0.2, 0.2); // Dark red launcher
+            alphas.push(1.0);
+            
+            // Aiming line - 8 white dots going from launcher toward mouse direction
+            const aimLength = 250;
+            const dotSpacing = aimLength / 8;
+            
+            for (let i = 1; i <= 8; i++) {
+                const distance = i * dotSpacing;
+                const aimX = Math.cos(this.launcher.angle) * distance;
+                const aimY = launcherY + Math.sin(this.launcher.angle) * distance;
+                
+                positions.push(aimX, aimY);
+                sizes.push(12 - i * 0.8); // Gradually smaller
+                colors.push(1.0, 1.0, 1.0); // White
+                alphas.push(1.0 - i * 0.1); // Gradually fade
+            }
+        }
+
         // Add rocket trails
         this.rockets.forEach(rocket => {
             rocket.trail.forEach((point, index) => {
@@ -343,7 +414,11 @@ class FireworksGame {
             alphas.push(particle.alpha);
         });
 
-        if (positions.length === 0) return;
+        console.log('🎨 About to render. Total particles:', positions.length / 2);
+        if (positions.length === 0) {
+            console.log('❌ No particles to render, returning early');
+            return;
+        }
 
         // Upload data to GPU
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
@@ -399,20 +474,21 @@ class FireworksGame {
     startGame() {
         document.getElementById('startScreen').style.display = 'none';
         document.getElementById('gameUI').style.display = 'block';
-        document.getElementById('controls').style.display = 'flex';
+        //document.getElementById('controls').style.display = 'flex';
 
         this.initGame();
         this.calculateSpawnArea(); // Calculate spawn area when game starts
+        this.updateLauncherPosition(); // Set up bubble shooter launcher
         this.gameRunning = true;
         this.lastTime = performance.now();
         this.updateSpawnAreaIndicator();
         
         // Auto-launch fireworks occasionally
-        this.autoLaunchInterval = setInterval(() => {
+        /* this.autoLaunchInterval = setInterval(() => {
             if (this.gameRunning && Math.random() < 0.3) {
                 this.launchFirework();
             }
-        }, 2000);
+        }, 2000); */
 
         this.gameLoop(this.lastTime);
     }
